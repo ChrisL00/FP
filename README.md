@@ -1,5 +1,2 @@
-# starter_folder
+# Final Project
 
-This repo....
-
-It is organised as follows...
