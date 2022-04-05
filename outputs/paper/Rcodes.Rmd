@@ -1,0 +1,775 @@
+---
+title: 'Appendix'
+---
+
+```{r}
+library(parallel)
+library(lme4)
+library(pscl)
+library(MASS)
+
+#number of cores
+ncores <- max(1, detectCores()-1)
+#number of clusters
+grp <- 10
+#specify sample size in each cluster
+n <- 1000
+#number of simulation rules
+m <- 1000
+
+# specify the regression model parameter
+beta0 <- 0.5
+beta1 <- 1
+beta2 <- -0.75
+beta3 <- 0.5
+
+#number of simulations per core
+numsim <- floor(m/ncores)
+#total simulations given cores
+mtot <- ncores * numsim
+
+
+#define function for multithreading
+sim <- function(no) {
+
+    from <- seq(1,mtot,by=numsim)[no]
+    to <- seq(numsim,mtot,by=numsim)[no]    
+    
+    #make empty data structures
+    beta0_est <- matrix(NA, numsim, 4)
+    beta1_est <- matrix(NA, numsim, 4)
+    beta2_est <- matrix(NA, numsim, 4)
+    beta3_est <- matrix(NA, numsim, 4)
+    
+    beta0var_est <- matrix(NA, numsim, 4)
+    beta1var_est <- matrix(NA, numsim, 4)
+    beta2var_est <- matrix(NA, numsim, 4)
+    beta3var_est <- matrix(NA, numsim, 4)
+    
+    beta0_coverage <- matrix(NA, numsim, 4)
+    beta1_coverage <- matrix(NA, numsim, 4)
+    beta2_coverage <- matrix(NA, numsim, 4)
+    beta3_coverage <- matrix(NA, numsim, 4)
+    
+    
+    #main for-loop to handle each simulation
+    for (j in 1:numsim) {
+
+        iter <- from + (j - 1) #define current iteration
+        set.seed(iter) #set new random seed for each iteration
+        
+        
+        # Generate dataset for incorporating random effect:
+        
+        grpnum <- c()
+        x1 <- c()
+        x2 <- c()
+        x3 <- c()
+        u <- c()
+        y <- c()
+        for (k in 1:grp) {  # for each cluster
+        grp <- rep(k, n)   # the cluster number
+        x.1 <- runif(n, 0, 5) # generate first covariate 
+        x.2 <- runif(n, 5, 10) # generate second covariate 
+        x.3 <- runif(n, 10, 15) # generate third covariate 
+        u.0 <- rnorm(n, 0, k/10)  # generate the random effect 
+        y.0 <- rpois(n, lambda = exp(beta0 + beta1 * x.1 + 
+                                       beta2 * x.2 + beta3 * x.3 + u.0)) 
+        # generate the outcome for each cluster
+        
+        grpnum <- c(grpnum, grp)
+        x1 <- c(x1, x.1)
+        x2 <- c(x2, x.2)
+        x3 <- c(x3, x.3)
+        u <- c(u, u.0)
+        y <- c(y, y.0)
+        }
+        dataset1 <- data.frame(
+            "Grpnum" = grpnum,
+            "x1" = x1,
+            "x2" = x2,
+            "x3" = x3,
+            "u" = u,
+            "y" = y)
+    
+         # Poisson GLM:
+        model1 <- glm(y ~ x1 + x2 + x3, 
+                      data = dataset1, family = poisson)
+        
+        beta0_est[j,1] <- coef(model1)[1]
+        beta0var_est[j,1] <- vcov(model1)[1,1]
+        cil <- beta0_est[j,1] + qnorm(0.025) * sqrt(beta0var_est[j,1])
+        ciu <- beta0_est[j,1] + qnorm(0.975) * sqrt(beta0var_est[j,1])
+        beta0_coverage[j,1] <- (beta0 >= cil) & (beta0 <= ciu)
+        
+        beta1_est[j,1] <- coef(model1)[2]
+        beta1var_est[j,1] <- vcov(model1)[2,2]
+        cil <- beta1_est[j,1] + qnorm(0.025) * sqrt(beta1var_est[j,1])
+        ciu <- beta1_est[j,1] + qnorm(0.975) * sqrt(beta1var_est[j,1])
+        beta1_coverage[j,1] <- (beta1 >= cil) & (beta1 <= ciu)
+        
+        beta2_est[j,1] <- coef(model1)[3]
+        beta2var_est[j,1] <- vcov(model1)[3,3]
+        cil <- beta2_est[j,1] + qnorm(0.025) * sqrt(beta2var_est[j,1])
+        ciu <- beta2_est[j,1] + qnorm(0.975) * sqrt(beta2var_est[j,1])
+        beta2_coverage[j,1] <- (beta2 >= cil) & (beta2 <= ciu)
+        
+        beta3_est[j,1] <- coef(model1)[4]
+        beta3var_est[j,1] <- vcov(model1)[4,4]
+        cil <- beta3_est[j,1] + qnorm(0.025) * sqrt(beta3var_est[j,1])
+        ciu <- beta3_est[j,1] + qnorm(0.975) * sqrt(beta3var_est[j,1])
+        beta3_coverage[j,1] <- (beta3 >= cil) & (beta3 <= ciu)
+        
+        
+        
+        # Quasi-Poisson GLM
+        model2 <- glm(y ~ x1 + x2 + x3, 
+                      data = dataset1, family = quasipoisson)
+        
+        beta0_est[j,2] <- coef(model2)[1]
+        beta0var_est[j,2] <- vcov(model2)[1,1]
+        cil <- beta0_est[j,2] + qnorm(0.025) * sqrt(beta0var_est[j,2])
+        ciu <- beta0_est[j,2] + qnorm(0.975) * sqrt(beta0var_est[j,2])
+        beta0_coverage[j,2] <- (beta0 >= cil) & (beta0 <= ciu)
+        
+        beta1_est[j,2] <- coef(model2)[2]
+        beta1var_est[j,2] <- vcov(model2)[2,2]
+        cil <- beta1_est[j,2] + qnorm(0.025) * sqrt(beta1var_est[j,2])
+        ciu <- beta1_est[j,2] + qnorm(0.975) * sqrt(beta1var_est[j,2])
+        beta1_coverage[j,2] <- (beta1 >= cil) & (beta1 <= ciu)
+        
+        beta2_est[j,2] <- coef(model2)[3]
+        beta2var_est[j,2] <- vcov(model2)[3,3]
+        cil <- beta2_est[j,2] + qnorm(0.025) * sqrt(beta2var_est[j,2])
+        ciu <- beta2_est[j,2] + qnorm(0.975) * sqrt(beta2var_est[j,2])
+        beta2_coverage[j,2] <- (beta2 >= cil) & (beta2 <= ciu)
+        
+        beta3_est[j,2] <- coef(model2)[4]
+        beta3var_est[j,2] <- vcov(model2)[4,4]
+        cil <- beta3_est[j,2] + qnorm(0.025) * sqrt(beta3var_est[j,2])
+        ciu <- beta3_est[j,2] + qnorm(0.975) * sqrt(beta3var_est[j,2])
+        beta3_coverage[j,2] <- (beta3 >= cil) & (beta3 <= ciu)
+        
+        
+        ## Negative binomial GLM
+        model3 <- glm.nb(y ~ x1 + x2 + x3, data = dataset1)
+        
+        beta0_est[j,3] <- coef(model3)[1]
+        beta0var_est[j,3] <- vcov(model3)[1,1]
+        cil <- beta0_est[j,3] + qnorm(0.025) * sqrt(beta0var_est[j,3])
+        ciu <- beta0_est[j,3] + qnorm(0.975) * sqrt(beta0var_est[j,3])
+        beta0_coverage[j,3] <- (beta0 >= cil) & (beta0 <= ciu)
+        
+        beta1_est[j,3] <- coef(model3)[2]
+        beta1var_est[j,3] <- vcov(model3)[2,2]
+        cil <- beta1_est[j,3] + qnorm(0.025) * sqrt(beta1var_est[j,3])
+        ciu <- beta1_est[j,3] + qnorm(0.975) * sqrt(beta1var_est[j,3])
+        beta1_coverage[j,3] <- (beta1 >= cil) & (beta1 <= ciu)
+        
+        beta2_est[j,3] <- coef(model3)[3]
+        beta2var_est[j,3] <- vcov(model3)[3,3]
+        cil <- beta2_est[j,3] + qnorm(0.025) * sqrt(beta2var_est[j,3])
+        ciu <- beta2_est[j,3] + qnorm(0.975) * sqrt(beta2var_est[j,3])
+        beta2_coverage[j,3] <- (beta2 >= cil) & (beta2 <= ciu)
+        
+        beta3_est[j,3] <- coef(model3)[4]
+        beta3var_est[j,3] <- vcov(model3)[4,4]
+        cil <- beta3_est[j,3] + qnorm(0.025) * sqrt(beta3var_est[j,3])
+        ciu <- beta3_est[j,3] + qnorm(0.975) * sqrt(beta3var_est[j,3])
+        beta3_coverage[j,3] <- (beta3 >= cil) & (beta3 <= ciu)
+
+        
+        # Poisson GLMM
+        model4 <- glmer(y~ x1 + x2 + x3 +(-1 + u|Grpnum),
+                        data = dataset1, family= poisson)
+        model4_coef <- coef(model4)$Grpnum
+
+        beta0_est[j,4] <- model4_coef$`(Intercept)`[1]
+        beta0var_est[j,4] <- vcov(model4)[1,1]
+        cil <- beta0_est[j,4] + qnorm(0.025) * sqrt(beta0var_est[j,4])
+        ciu <- beta0_est[j,4] + qnorm(0.975) * sqrt(beta0var_est[j,4])
+        beta0_coverage[j,4] <- (beta0 >= cil) & (beta0 <= ciu)
+        
+        beta1_est[j,4] <- model4_coef$x1[1]
+        beta1var_est[j,4] <- vcov(model4)[2,2]
+        cil <- beta1_est[j,4] + qnorm(0.025) * sqrt(beta1var_est[j,4])
+        ciu <- beta1_est[j,4] + qnorm(0.975) * sqrt(beta1var_est[j,4])
+        beta1_coverage[j,4] <- (beta1 >= cil) & (beta1 <= ciu)
+        
+        beta2_est[j,4] <- model4_coef$x2[1]
+        beta2var_est[j,4] <- vcov(model4)[3,3]
+        cil <- beta2_est[j,4] + qnorm(0.025) * sqrt(beta2var_est[j,4])
+        ciu <- beta2_est[j,4] + qnorm(0.975) * sqrt(beta2var_est[j,4])
+        beta2_coverage[j,4] <- (beta2 >= cil) & (beta2 <= ciu)
+        
+        beta3_est[j,4] <- model4_coef$x3[1]
+        beta3var_est[j,4] <- vcov(model4)[4,4]
+        cil <- beta3_est[j,4] + qnorm(0.025) * sqrt(beta3var_est[j,4])
+        ciu <- beta3_est[j,4] + qnorm(0.975) * sqrt(beta3var_est[j,4])
+        beta3_coverage[j,4] <- (beta3 >= cil) & (beta3 <= ciu)
+        
+     
+       
+    }
+
+    save(beta0_est, file=file.path(outpath, paste0('beta0_est', no)))
+    save(beta1_est, file=file.path(outpath, paste0('beta1_est', no)))
+    save(beta2_est, file=file.path(outpath, paste0('beta2_est', no)))
+    save(beta3_est, file=file.path(outpath, paste0('beta3_est', no)))
+    
+    save(beta0var_est, 
+         file=file.path(outpath, paste0('beta0var_est', no)))
+    save(beta1var_est, 
+         file=file.path(outpath, paste0('beta1var_est', no)))
+    save(beta2var_est, 
+         file=file.path(outpath, paste0('beta2var_est', no)))
+    save(beta3var_est, 
+         file=file.path(outpath, paste0('beta3var_est', no)))
+    
+    save(beta0_coverage, 
+         file=file.path(outpath, paste0('beta0_coverage', no)))
+    save(beta1_coverage, 
+         file=file.path(outpath, paste0('beta1_coverage', no)))
+    save(beta2_coverage, 
+         file=file.path(outpath, paste0('beta2_coverage', no)))
+    save(beta3_coverage, 
+         file=file.path(outpath, paste0('beta3_coverage', no)))
+    return(NULL)
+}
+
+
+
+#Run the simulation
+system.time(
+  mclapply(1:ncores, sim, mc.cores=ncores, mc.silent=FALSE))
+
+# Combine the results:
+beta0_est_all <- NULL
+beta1_est_all <- NULL
+beta2_est_all <- NULL
+beta3_est_all <- NULL
+
+beta0var_est_all <- NULL
+beta1var_est_all <- NULL
+beta2var_est_all <- NULL
+beta3var_est_all <- NULL
+
+beta0_coverage_all <- NULL
+beta1_coverage_all <- NULL
+beta2_coverage_all <- NULL
+beta3_coverage_all <- NULL
+
+
+for (i in 1:ncores) {
+    load(file=file.path(outpath, paste0('beta0_est', i)))
+    load(file=file.path(outpath, paste0('beta1_est', i)))
+    load(file=file.path(outpath, paste0('beta2_est', i)))
+    load(file=file.path(outpath, paste0('beta3_est', i)))
+    
+    load(file=file.path(outpath, paste0('beta0var_est', i)))
+    load(file=file.path(outpath, paste0('beta1var_est', i)))
+    load(file=file.path(outpath, paste0('beta2var_est', i)))
+    load(file=file.path(outpath, paste0('beta3var_est', i)))
+    
+    load(file=file.path(outpath, paste0('beta0_coverage', i)))
+    load(file=file.path(outpath, paste0('beta1_coverage', i)))
+    load(file=file.path(outpath, paste0('beta2_coverage', i)))
+    load(file=file.path(outpath, paste0('beta3_coverage', i)))
+
+    
+    beta0_est_all <- rbind(beta0_est_all, beta0_est)
+    beta1_est_all <- rbind(beta1_est_all, beta1_est)
+    beta2_est_all <- rbind(beta2_est_all, beta2_est)
+    beta3_est_all <- rbind(beta3_est_all, beta3_est)
+    
+    beta0var_est_all <- rbind(beta0var_est_all, beta0var_est)
+    beta1var_est_all <- rbind(beta1var_est_all, beta1var_est)
+    beta2var_est_all <- rbind(beta2var_est_all, beta2var_est)
+    beta3var_est_all <- rbind(beta3var_est_all, beta3var_est)
+    
+    beta0_coverage_all <- rbind(beta0_coverage_all, beta0_coverage)
+    beta1_coverage_all <- rbind(beta1_coverage_all, beta1_coverage)
+    beta2_coverage_all <- rbind(beta2_coverage_all, beta2_coverage)
+    beta3_coverage_all <- rbind(beta3_coverage_all, beta3_coverage)
+}
+
+#make the results table
+results <- rbind(colMeans(beta0_est_all), colMeans(beta1_est_all), 
+                 colMeans(beta2_est_all), colMeans(beta3_est_all),
+                 colMeans(beta0_est_all) - beta0, 
+                 colMeans(beta1_est_all) - beta1, 
+                 colMeans(beta2_est_all) - beta2, 
+                 colMeans(beta3_est_all) - beta3, 
+                 apply(beta0_est_all, 2, sd), 
+                 apply(beta1_est_all, 2, sd), 
+                 apply(beta2_est_all, 2, sd), 
+                 apply(beta3_est_all, 2, sd),
+                 sqrt(colMeans(beta0var_est_all)), 
+                 sqrt(colMeans(beta1var_est_all)), 
+                 sqrt(colMeans(beta2var_est_all)), 
+                 sqrt(colMeans(beta3var_est_all)), 
+                 sqrt(apply(beta0_est_all, 2, var) + 
+                        (colMeans(beta0_est_all) - beta0)^2),
+                 sqrt(apply(beta1_est_all, 2, var) + 
+                        (colMeans(beta1_est_all) - beta1)^2),
+                 sqrt(apply(beta2_est_all, 2, var) + 
+                        (colMeans(beta2_est_all) - beta2)^2), 
+                 sqrt(apply(beta3_est_all, 2, var) + 
+                        (colMeans(beta3_est_all) - beta3)^2), 
+                 sqrt(colMeans(beta0var_est_all)/m), 
+                 sqrt(colMeans(beta1var_est_all)/m), 
+                 sqrt(colMeans(beta2var_est_all)/m), 
+                 sqrt(colMeans(beta3var_est_all)/m), 
+                 colMeans(beta0_coverage_all), 
+                 colMeans(beta1_coverage_all), 
+                 colMeans(beta2_coverage_all), 
+                 colMeans(beta3_coverage_all))
+
+colnames(results) <- c('Poisson GLM', 'Quasi-Poisson GLM', 
+                       'Negative-Binomial GLM', 'Poisson GLMM')
+rownames(results) <- c('Mean of beta0', 'Mean of beta1', 
+                       'Mean of beta2', 'Mean of beta3', 
+                       'Bias of beta0', 'Bias of beta1', 
+                       'Bias of beta2', 'Bias of beta3', 
+                       'SD of beta0', 'SD of beta1', 
+                       'SD of beta2', 'SD of beta3', 
+                       'Mean SE of beta0', 'Mean SE of beta1', 
+                       'Mean SE of beta2', 'Mean SE of beta3', 
+                       'RMSE of beta0', 'RMSE of beta1', 
+                       'RMSE of beta2', 'RMSE of beta3', 
+                       'MCE of beta0',  'MCE of beta1',  
+                       'MCE of beta2',  'MCE of beta3', 
+                       'Coverage of beta0', 'Coverage of beta1', 
+                       'Coverage of beta2', 'Coverage of beta3'
+                       )
+round(results, 5)
+
+```
+
+
+```{r zero-inflation + random effect}
+library(parallel)
+library(lme4)
+library(pscl)
+library(MASS)
+library(glmmTMB)
+#number of cores
+ncores <- max(1, detectCores()-1)
+#number of clusters
+grp <- 10
+#specify sample size in each cluster
+n <- 1000
+#specify expected effect size
+theta <- 3
+#number of simulation rules
+m <- 1000
+# specify the regression model parameter
+beta0 <- 0.5
+beta1 <- 1
+beta2 <- -0.75
+beta3 <- 0.5
+gamma0 <- 0.5
+gamma1 <- 1
+
+#number of simulations per core
+numsim <- floor(m/ncores)
+#total simulations given cores
+mtot <- ncores * numsim
+
+#define function for multithreading
+sim <- function(no) {
+
+    from <- seq(1,mtot,by=numsim)[no]
+    to <- seq(numsim,mtot,by=numsim)[no]    
+    
+    #make empty data structures
+    beta0_est <- matrix(NA, numsim, 6)
+    beta1_est <- matrix(NA, numsim, 6)
+    beta2_est <- matrix(NA, numsim, 6)
+    beta3_est <- matrix(NA, numsim, 6)
+    
+    beta0var_est <- matrix(NA, numsim, 6)
+    beta1var_est <- matrix(NA, numsim, 6)
+    beta2var_est <- matrix(NA, numsim, 6)
+    beta3var_est <- matrix(NA, numsim, 6)
+    
+    beta0_coverage <- matrix(NA, numsim, 6)
+    beta1_coverage <- matrix(NA, numsim, 6)
+    beta2_coverage <- matrix(NA, numsim, 6)
+    beta3_coverage <- matrix(NA, numsim, 6)
+    #main for-loop to handle each simulation
+    for (j in 1:numsim) {
+
+        iter <- from + (j - 1) #define current iteration
+        set.seed(iter) #set new random seed for each iteration
+        
+        
+        # Generate dataset for incorporating random effect:
+        grpnum <- c()
+        x1 <- c()
+        x2 <- c()
+        x3 <- c()
+        u <- c()
+        y <- c()
+        for (k in 1:grp) {
+        grp <- rep(k, n)
+        x.1 <- runif(n, 0, 5) # generate first covariate 
+        x.2 <- runif(n, 5, 10) # generate second covariate
+        x.3 <- runif(n, 10, 15) # generate third covariate
+        u.0 <- rnorm(n, 0, k/10)  # generate the random effect
+        z <- rbinom(n, size = 1, 
+                    prob = (1 - 1/(1 + exp(-(gamma0 + gamma1 * x.1 )))))
+        y.0 <- ifelse(z == 0, 0,
+                      rpois(n, lambda = exp(beta0 + 
+                                              beta1 * x.1 + beta2 * x.2 +
+                                              beta3 * x.3 + u.0) )) 
+        # generate the outcome for each cluster
+
+        
+        grpnum <- c(grpnum, grp)
+        x1 <- c(x1, x.1)
+        x2 <- c(x2, x.2)
+        x3 <- c(x3, x.3)
+        u <- c(u, u.0)
+        y <- c(y, y.0)
+        }
+        dataset2 <- data.frame(
+            "Grpnum" = grpnum,
+            "x1" = x1,
+            "x2" = x2,
+            "x3" = x3,
+            "u" = u,
+            "y" = y)
+    
+        # Poisson GLM
+        model1 <- glm(y ~ x1 + x2 + x3, 
+                      data = dataset2, family = poisson)
+
+        beta0_est[j,1] <- coef(model1)[1]
+        beta0var_est[j,1] <- vcov(model1)[1,1]
+        cil <- beta0_est[j,1] + qnorm(0.025) * sqrt(beta0var_est[j,1])
+        ciu <- beta0_est[j,1] + qnorm(0.975) * sqrt(beta0var_est[j,1])
+        beta0_coverage[j,1] <- (beta0 >= cil) & (beta0 <= ciu)
+        
+        beta1_est[j,1] <- coef(model1)[2]
+        beta1var_est[j,1] <- vcov(model1)[2,2]
+        cil <- beta1_est[j,1] + qnorm(0.025) * sqrt(beta1var_est[j,1])
+        ciu <- beta1_est[j,1] + qnorm(0.975) * sqrt(beta1var_est[j,1])
+        beta1_coverage[j,1] <- (beta1 >= cil) & (beta1 <= ciu)
+        
+        beta2_est[j,1] <- coef(model1)[3]
+        beta2var_est[j,1] <- vcov(model1)[3,3]
+        cil <- beta2_est[j,1] + qnorm(0.025) * sqrt(beta2var_est[j,1])
+        ciu <- beta2_est[j,1] + qnorm(0.975) * sqrt(beta2var_est[j,1])
+        beta2_coverage[j,1] <- (beta2 >= cil) & (beta2 <= ciu)
+        
+        beta3_est[j,1] <- coef(model1)[4]
+        beta3var_est[j,1] <- vcov(model1)[4,4]
+        cil <- beta3_est[j,1] + qnorm(0.025) * sqrt(beta3var_est[j,1])
+        ciu <- beta3_est[j,1] + qnorm(0.975) * sqrt(beta3var_est[j,1])
+        beta3_coverage[j,1] <- (beta3 >= cil) & (beta3 <= ciu)
+        
+        
+        
+        # Quasi-Poisson GLM
+        model2 <- glm(y ~ x1 + x2 + x3, 
+                      data = dataset2, family = quasipoisson)
+        
+        beta0_est[j,2] <- coef(model2)[1]
+        beta0var_est[j,2] <- vcov(model2)[1,1]
+        cil <- beta0_est[j,2] + qnorm(0.025) * sqrt(beta0var_est[j,2])
+        ciu <- beta0_est[j,2] + qnorm(0.975) * sqrt(beta0var_est[j,2])
+        beta0_coverage[j,2] <- (beta0 >= cil) & (beta0 <= ciu)
+        
+        beta1_est[j,2] <- coef(model2)[2]
+        beta1var_est[j,2] <- vcov(model2)[2,2]
+        cil <- beta1_est[j,2] + qnorm(0.025) * sqrt(beta1var_est[j,2])
+        ciu <- beta1_est[j,2] + qnorm(0.975) * sqrt(beta1var_est[j,2])
+        beta1_coverage[j,2] <- (beta1 >= cil) & (beta1 <= ciu)
+        
+        beta2_est[j,2] <- coef(model2)[3]
+        beta2var_est[j,2] <- vcov(model2)[3,3]
+        cil <- beta2_est[j,2] + qnorm(0.025) * sqrt(beta2var_est[j,2])
+        ciu <- beta2_est[j,2] + qnorm(0.975) * sqrt(beta2var_est[j,2])
+        beta2_coverage[j,2] <- (beta2 >= cil) & (beta2 <= ciu)
+        
+        beta3_est[j,2] <- coef(model2)[4]
+        beta3var_est[j,2] <- vcov(model2)[4,4]
+        cil <- beta3_est[j,2] + qnorm(0.025) * sqrt(beta3var_est[j,2])
+        ciu <- beta3_est[j,2] + qnorm(0.975) * sqrt(beta3var_est[j,2])
+        beta3_coverage[j,2] <- (beta3 >= cil) & (beta3 <= ciu)
+        
+        
+        # Negative-binomial GLM
+        model3<- glm.nb(y ~ x1 + x2 + x3, data = dataset2)
+        
+        beta0_est[j,3] <- coef(model3)[1]
+        beta0var_est[j,3] <- vcov(model3)[1,1]
+        cil <- beta0_est[j,3] + qnorm(0.025) * sqrt(beta0var_est[j,3])
+        ciu <- beta0_est[j,3] + qnorm(0.975) * sqrt(beta0var_est[j,3])
+        beta0_coverage[j,3] <- (beta0 >= cil) & (beta0 <= ciu)
+        
+        beta1_est[j,3] <- coef(model3)[2]
+        beta1var_est[j,3] <- vcov(model3)[2,2]
+        cil <- beta1_est[j,3] + qnorm(0.025) * sqrt(beta1var_est[j,3])
+        ciu <- beta1_est[j,3] + qnorm(0.975) * sqrt(beta1var_est[j,3])
+        beta1_coverage[j,3] <- (beta1 >= cil) & (beta1 <= ciu)
+        
+        beta2_est[j,3] <- coef(model3)[3]
+        beta2var_est[j,3] <- vcov(model3)[3,3]
+        cil <- beta2_est[j,3] + qnorm(0.025) * sqrt(beta2var_est[j,3])
+        ciu <- beta2_est[j,3] + qnorm(0.975) * sqrt(beta2var_est[j,3])
+        beta2_coverage[j,3] <- (beta2 >= cil) & (beta2 <= ciu)
+        
+        beta3_est[j,3] <- coef(model3)[4]
+        beta3var_est[j,3] <- vcov(model3)[4,4]
+        cil <- beta3_est[j,3] + qnorm(0.025) * sqrt(beta3var_est[j,3])
+        ciu <- beta3_est[j,3] + qnorm(0.975) * sqrt(beta3var_est[j,3])
+        beta3_coverage[j,3] <- (beta3 >= cil) & (beta3 <= ciu)
+        
+        
+        
+        # ZIP GLM
+        model4 <- zeroinfl(y ~ x1 + x2 + x3 | x1, 
+                           dist = "poisson", data = dataset2)
+        
+        beta0_est[j,4] <- coef(model4)[1]
+        beta0var_est[j,4] <- vcov(model4)[1,1]
+        cil <- beta0_est[j,4] + qnorm(0.025) * sqrt(beta0var_est[j,4])
+        ciu <- beta0_est[j,4] + qnorm(0.975) * sqrt(beta0var_est[j,4])
+        beta0_coverage[j,4] <- (beta0 >= cil) & (beta0 <= ciu)
+        
+        beta1_est[j,4] <- coef(model4)[2]
+        beta1var_est[j,4] <- vcov(model4)[2,2]
+        cil <- beta1_est[j,4] + qnorm(0.025) * sqrt(beta1var_est[j,4])
+        ciu <- beta1_est[j,4] + qnorm(0.975) * sqrt(beta1var_est[j,4])
+        beta1_coverage[j,4] <- (beta1 >= cil) & (beta1 <= ciu)
+        
+        beta2_est[j,4] <- coef(model4)[3]
+        beta2var_est[j,4] <- vcov(model4)[3,3]
+        cil <- beta2_est[j,4] + qnorm(0.025) * sqrt(beta2var_est[j,4])
+        ciu <- beta2_est[j,4] + qnorm(0.975) * sqrt(beta2var_est[j,4])
+        beta2_coverage[j,4] <- (beta2 >= cil) & (beta2 <= ciu)
+        
+        beta3_est[j,4] <- coef(model4)[4]
+        beta3var_est[j,4] <- vcov(model3)[4,4]
+        cil <- beta3_est[j,4] + qnorm(0.025) * sqrt(beta3var_est[j,4])
+        ciu <- beta3_est[j,4] + qnorm(0.975) * sqrt(beta3var_est[j,4])
+        beta3_coverage[j,4] <- (beta3 >= cil) & (beta3 <= ciu)
+        
+        
+        
+        # Poisson GLMM
+        model5<- glmer(y~ x1 + x2 + x3 +(-1 + u|Grpnum),
+                       data = dataset2, family= poisson)
+        model5_coef <- coef(model5)$Grpnum
+        
+        beta0_est[j,5] <- model5_coef$`(Intercept)`[1]
+        beta0var_est[j,5] <- vcov(model5)[1,1]
+        cil <- beta0_est[j,5] + qnorm(0.025) * sqrt(beta0var_est[j,5])
+        ciu <- beta0_est[j,5] + qnorm(0.975) * sqrt(beta0var_est[j,5])
+        beta0_coverage[j,5] <- (beta0 >= cil) & (beta0 <= ciu)
+        
+        beta1_est[j,5] <- model5_coef$x1[1]
+        beta1var_est[j,5] <- vcov(model5)[2,2]
+        cil <- beta1_est[j,5] + qnorm(0.025) * sqrt(beta1var_est[j,5])
+        ciu <- beta1_est[j,5] + qnorm(0.975) * sqrt(beta1var_est[j,5])
+        beta1_coverage[j,5] <- (beta1 >= cil) & (beta1 <= ciu)
+        
+        beta2_est[j,5] <- model5_coef$x2[1]
+        beta2var_est[j,5] <- vcov(model5)[3,3]
+        cil <- beta2_est[j,5] + qnorm(0.025) * sqrt(beta2var_est[j,5])
+        ciu <- beta2_est[j,5] + qnorm(0.975) * sqrt(beta2var_est[j,5])
+        beta2_coverage[j,5] <- (beta2 >= cil) & (beta2 <= ciu)
+        
+        beta3_est[j,5] <- model5_coef$x3[1]
+        beta3var_est[j,5] <- vcov(model4)[4,4]
+        cil <- beta3_est[j,5] + qnorm(0.025) * sqrt(beta3var_est[j,5])
+        ciu <- beta3_est[j,5] + qnorm(0.975) * sqrt(beta3var_est[j,5])
+        beta3_coverage[j,5] <- (beta3 >= cil) & (beta3 <= ciu)
+        
+        
+        # ZIP GLMM
+        model6<- glmmTMB(y~ x1 + x2 + x3 +(-1 +u|Grpnum), 
+                         data = dataset2, ziformula = ~x1, family= poisson)
+        model6_coef <- model6$fit$par
+        
+        beta0_est[j,6] <- model6_coef[[1]]
+        beta0var_est[j,6] <- vcov(model6)$cond[1]
+        cil <- beta0_est[j,6] + qnorm(0.025) * sqrt(beta0var_est[j,6])
+        ciu <- beta0_est[j,6] + qnorm(0.975) * sqrt(beta0var_est[j,6])
+        beta0_coverage[j,6] <- (beta0 >= cil) & (beta0 <= ciu)
+        
+        beta1_est[j,6] <- model6_coef[[2]]
+        beta1var_est[j,6] <- vcov(model6)$cond[6]
+        cil <- beta1_est[j,6] + qnorm(0.025) * sqrt(beta1var_est[j,6])
+        ciu <- beta1_est[j,6] + qnorm(0.975) * sqrt(beta1var_est[j,6])
+        beta1_coverage[j,6] <- (beta1 >= cil) & (beta1 <= ciu)
+        
+        beta2_est[j,6] <- model6_coef[[3]]
+        beta2var_est[j,6] <- vcov(model6)$cond[11]
+        cil <- beta2_est[j,6] + qnorm(0.025) * sqrt(beta2var_est[j,6])
+        ciu <- beta2_est[j,6] + qnorm(0.975) * sqrt(beta2var_est[j,6])
+        beta2_coverage[j,6] <- (beta2 >= cil) & (beta2 <= ciu)
+        
+        beta3_est[j,6] <- model6_coef[[4]]
+        beta3var_est[j,6] <- vcov(model6)$cond[16]
+        cil <- beta3_est[j,6] + qnorm(0.025) * sqrt(beta3var_est[j,6])
+        ciu <- beta3_est[j,6] + qnorm(0.975) * sqrt(beta3var_est[j,6])
+        beta3_coverage[j,6] <- (beta3 >= cil) & (beta3 <= ciu)
+        
+    }
+
+    save(beta0_est, file=file.path(outpath, paste0('beta0_est', no)))
+    save(beta1_est, file=file.path(outpath, paste0('beta1_est', no)))
+    save(beta2_est, file=file.path(outpath, paste0('beta2_est', no)))
+    save(beta3_est, file=file.path(outpath, paste0('beta3_est', no)))
+    
+    save(beta0var_est, 
+         file=file.path(outpath, paste0('beta0var_est', no)))
+    save(beta1var_est, 
+         file=file.path(outpath, paste0('beta1var_est', no)))
+    save(beta2var_est, 
+         file=file.path(outpath, paste0('beta2var_est', no)))
+    save(beta3var_est, 
+         file=file.path(outpath, paste0('beta3var_est', no)))
+    
+    save(beta0_coverage, 
+         file=file.path(outpath, paste0('beta0_coverage', no)))
+    save(beta1_coverage, 
+         file=file.path(outpath, paste0('beta1_coverage', no)))
+    save(beta2_coverage, 
+         file=file.path(outpath, paste0('beta2_coverage', no)))
+    save(beta3_coverage, 
+         file=file.path(outpath, paste0('beta3_coverage', no)))
+    return(NULL)
+}
+
+#Run the simulation
+ system.time(
+     mclapply(1:ncores, sim, mc.cores=ncores, mc.silent=FALSE)
+ )
+
+# Combine the result
+beta0_est_all <- NULL
+beta1_est_all <- NULL
+beta2_est_all <- NULL
+beta3_est_all <- NULL
+
+beta0var_est_all <- NULL
+beta1var_est_all <- NULL
+beta2var_est_all <- NULL
+beta3var_est_all <- NULL
+
+beta0_coverage_all <- NULL
+beta1_coverage_all <- NULL
+beta2_coverage_all <- NULL
+beta3_coverage_all <- NULL
+
+
+for (i in 1:ncores) {
+    load(file=file.path(outpath, paste0('beta0_est', i)))
+    load(file=file.path(outpath, paste0('beta1_est', i)))
+    load(file=file.path(outpath, paste0('beta2_est', i)))
+    load(file=file.path(outpath, paste0('beta3_est', i)))
+    
+    load(file=file.path(outpath, paste0('beta0var_est', i)))
+    load(file=file.path(outpath, paste0('beta1var_est', i)))
+    load(file=file.path(outpath, paste0('beta2var_est', i)))
+    load(file=file.path(outpath, paste0('beta3var_est', i)))
+    
+    load(file=file.path(outpath, paste0('beta0_coverage', i)))
+    load(file=file.path(outpath, paste0('beta1_coverage', i)))
+    load(file=file.path(outpath, paste0('beta2_coverage', i)))
+    load(file=file.path(outpath, paste0('beta3_coverage', i)))
+
+    
+    beta0_est_all <- rbind(beta0_est_all, beta0_est)
+    beta1_est_all <- rbind(beta1_est_all, beta1_est)
+    beta2_est_all <- rbind(beta2_est_all, beta2_est)
+    beta3_est_all <- rbind(beta3_est_all, beta3_est)
+    
+    beta0var_est_all <- rbind(beta0var_est_all, beta0var_est)
+    beta1var_est_all <- rbind(beta1var_est_all, beta1var_est)
+    beta2var_est_all <- rbind(beta2var_est_all, beta2var_est)
+    beta3var_est_all <- rbind(beta3var_est_all, beta3var_est)
+    
+    beta0_coverage_all <- rbind(beta0_coverage_all, beta0_coverage)
+    beta1_coverage_all <- rbind(beta1_coverage_all, beta1_coverage)
+    beta2_coverage_all <- rbind(beta2_coverage_all, beta2_coverage)
+    beta3_coverage_all <- rbind(beta3_coverage_all, beta3_coverage)
+}
+
+#make the results table
+results <- rbind(colMeans(beta0_est_all), 
+                 colMeans(beta1_est_all), 
+                 colMeans(beta2_est_all), 
+                 colMeans(beta3_est_all),
+                 colMeans(beta0_est_all) - beta0, 
+                 colMeans(beta1_est_all) - beta1, 
+                 colMeans(beta2_est_all) - beta2, 
+                 colMeans(beta3_est_all) - beta3, 
+                 apply(beta0_est_all, 2, sd), 
+                 apply(beta1_est_all, 2, sd), 
+                 apply(beta2_est_all, 2, sd), 
+                 apply(beta3_est_all, 2, sd),
+                 sqrt(colMeans(beta0var_est_all)), 
+                 sqrt(colMeans(beta1var_est_all)), 
+                 sqrt(colMeans(beta2var_est_all)), 
+                 sqrt(colMeans(beta3var_est_all)), 
+                 sqrt(apply(beta0_est_all, 2, var)
+                      + (colMeans(beta0_est_all) - beta0)^2), 
+                 sqrt(apply(beta1_est_all, 2, var)
+                      + (colMeans(beta1_est_all) - beta1)^2), 
+                 sqrt(apply(beta2_est_all, 2, var)
+                      + (colMeans(beta2_est_all) - beta2)^2), 
+                 sqrt(apply(beta3_est_all, 2, var)
+                      + (colMeans(beta3_est_all) - beta3)^2), 
+                 colMeans(beta0_coverage_all), 
+                 colMeans(beta1_coverage_all), 
+                 colMeans(beta2_coverage_all), 
+                 colMeans(beta3_coverage_all))
+
+colnames(results) <- c('Poisson GLM', 'Quasi-Poisson GLM', 
+                       'Negative-Binomial GLM','Zero-Inflated Poisson GLM', 
+                       'Poisson GLMM', 'Zero-Inflated Poisson GLMM')
+rownames(results) <- c('Mean of beta0', 'Mean of beta1', 
+                       'Mean of beta2', 'Mean of beta3', 
+                       'Bias of beta0', 'Bias of beta1', 
+                       'Bias of beta2', 'Bias of beta3', 
+                       'SD of beta0', 'SD of beta1', 
+                       'SD of beta2', 'SD of beta3', 
+                       'Mean SE of beta0', 'Mean SE of beta1', 
+                       'Mean SE of beta2', 'Mean SE of beta3', 
+                       'RMSE of beta0', 'RMSE of beta1', 
+                       'RMSE of beta2', 'RMSE of beta3', 
+                       'Coverage of beta0', 'Coverage of beta1', 
+                       'Coverage of beta2', 'Coverage of beta3'
+                       )
+round(results, 5)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
